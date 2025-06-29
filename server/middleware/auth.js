@@ -14,7 +14,7 @@ export async function authenticateToken(req, res, next) {
     
     // Check if user still exists and is active
     const [users] = await pool.execute(
-      'SELECT id, name, email, role, town, is_active FROM users WHERE id = ? AND is_active = true',
+      'SELECT user_id as id, name, email, role, town, is_active FROM users WHERE user_id = ? AND is_active = true',
       [decoded.userId]
     );
 

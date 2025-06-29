@@ -12,7 +12,7 @@ router.post('/register', async (req, res) => {
 
     // Check if user already exists
     const [existingUsers] = await pool.execute(
-      'SELECT id FROM users WHERE email = ?',
+      'SELECT user_id FROM users WHERE email = ?',
       [email]
     );
 
@@ -25,7 +25,7 @@ router.post('/register', async (req, res) => {
 
     // Insert user
     const [result] = await pool.execute(
-      'INSERT INTO users (name, email, password, role, phone, town) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO users (name, email, password, role, phone_number, town) VALUES (?, ?, ?, ?, ?, ?)',
       [name, email, hashedPassword, role || 'customer', phone, town]
     );
 
@@ -38,7 +38,7 @@ router.post('/register', async (req, res) => {
 
     // Get user data
     const [users] = await pool.execute(
-      'SELECT id, name, email, role, phone, town FROM users WHERE id = ?',
+      'SELECT user_id as id, name, email, role, phone_number as phone, town FROM users WHERE user_id = ?',
       [result.insertId]
     );
 
@@ -60,7 +60,7 @@ router.post('/login', async (req, res) => {
 
     // Find user
     const [users] = await pool.execute(
-      'SELECT id, name, email, password, role, phone, town, is_active FROM users WHERE email = ?',
+      'SELECT user_id as id, name, email, password, role, phone_number as phone, town, is_active FROM users WHERE email = ?',
       [email]
     );
 
@@ -114,7 +114,7 @@ router.get('/verify', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
     const [users] = await pool.execute(
-      'SELECT id, name, email, role, phone, town FROM users WHERE id = ? AND is_active = true',
+      'SELECT user_id as id, name, email, role, phone_number as phone, town FROM users WHERE user_id = ? AND is_active = true',
       [decoded.userId]
     );
 
