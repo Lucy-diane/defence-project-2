@@ -37,8 +37,8 @@ export async function initializeDatabase() {
     console.log(`Database ${dbConfig.database} created or already exists`);
     await adminConnection.end();
 
-    // Create tables in correct order
-    await createTables();
+    // Check existing tables and create/update as needed
+    await setupTables();
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Database initialization error:', error);
@@ -52,10 +52,70 @@ export async function initializeDatabase() {
   }
 }
 
-async function createTables() {
-  // Create tables in the correct order to avoid foreign key constraint errors
-  
-  // 1. First create users table (no dependencies)
+async function setupTables() {
+  try {
+    // Check what tables already exist
+    const [existingTables] = await pool.execute(
+      "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?",
+      [dbConfig.database]
+    );
+    
+    const tableNames = existingTables.map(row => row.TABLE_NAME);
+    console.log('Existing tables:', tableNames);
+
+    // Drop foreign key constraints first to avoid conflicts
+    if (tableNames.length > 0) {
+      console.log('Cleaning up existing foreign key constraints...');
+      await cleanupForeignKeys();
+    }
+
+    // Create/recreate tables in correct order
+    await createUsersTable();
+    await createRestaurantsTable();
+    await createRestaurantCategoriesTable();
+    await createMenuItemsTable();
+    await createOrdersTable();
+    await createOrderItemsTable();
+    await createPaymentsTable();
+    await createDeliveryLocationsTable();
+    await createUserSessionsTable();
+
+    // Insert default admin user if not exists
+    await createDefaultAdmin();
+
+    console.log('🎉 All database tables set up successfully!');
+  } catch (error) {
+    console.error('Error setting up tables:', error);
+    throw error;
+  }
+}
+
+async function cleanupForeignKeys() {
+  try {
+    // Get all foreign key constraints
+    const [constraints] = await pool.execute(`
+      SELECT CONSTRAINT_NAME, TABLE_NAME 
+      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+      WHERE REFERENCED_TABLE_SCHEMA = ? 
+      AND REFERENCED_TABLE_NAME IS NOT NULL
+    `, [dbConfig.database]);
+
+    // Drop each foreign key constraint
+    for (const constraint of constraints) {
+      try {
+        await pool.execute(`ALTER TABLE ${constraint.TABLE_NAME} DROP FOREIGN KEY ${constraint.CONSTRAINT_NAME}`);
+        console.log(`✓ Dropped foreign key: ${constraint.CONSTRAINT_NAME}`);
+      } catch (err) {
+        // Ignore errors if constraint doesn't exist
+        console.log(`- Foreign key ${constraint.CONSTRAINT_NAME} already removed or doesn't exist`);
+      }
+    }
+  } catch (error) {
+    console.log('Note: Could not clean up foreign keys (this is normal for new databases)');
+  }
+}
+
+async function createUsersTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -70,9 +130,10 @@ async function createTables() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ Users table created');
+  console.log('✓ Users table ready');
+}
 
-  // 2. Create restaurants table (depends on users)
+async function createRestaurantsTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS restaurants (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -89,24 +150,49 @@ async function createTables() {
       rating DECIMAL(3,2) DEFAULT 0.0,
       is_active BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ Restaurants table created');
+  
+  // Add foreign key constraint
+  try {
+    await pool.execute(`
+      ALTER TABLE restaurants 
+      ADD CONSTRAINT fk_restaurants_owner 
+      FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    // Constraint might already exist
+    console.log('- Restaurants foreign key constraint already exists');
+  }
+  
+  console.log('✓ Restaurants table ready');
+}
 
-  // 3. Create restaurant_categories table (depends on restaurants)
+async function createRestaurantCategoriesTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS restaurant_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       restaurant_id INT NOT NULL,
-      category VARCHAR(100) NOT NULL,
-      FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+      category VARCHAR(100) NOT NULL
     )
   `);
-  console.log('✓ Restaurant categories table created');
+  
+  // Add foreign key constraint
+  try {
+    await pool.execute(`
+      ALTER TABLE restaurant_categories 
+      ADD CONSTRAINT fk_restaurant_categories_restaurant 
+      FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Restaurant categories foreign key constraint already exists');
+  }
+  
+  console.log('✓ Restaurant categories table ready');
+}
 
-  // 4. Create menu_items table (depends on restaurants)
+async function createMenuItemsTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS menu_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -119,13 +205,25 @@ async function createTables() {
       prep_time INT NOT NULL,
       is_available BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ Menu items table created');
+  
+  // Add foreign key constraint
+  try {
+    await pool.execute(`
+      ALTER TABLE menu_items 
+      ADD CONSTRAINT fk_menu_items_restaurant 
+      FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Menu items foreign key constraint already exists');
+  }
+  
+  console.log('✓ Menu items table ready');
+}
 
-  // 5. Create orders table (depends on users and restaurants)
+async function createOrdersTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -140,29 +238,80 @@ async function createTables() {
       payment_status ENUM('pending', 'paid', 'failed') DEFAULT 'pending',
       payment_reference VARCHAR(255) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
-      FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE SET NULL
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ Orders table created');
+  
+  // Add foreign key constraints
+  try {
+    await pool.execute(`
+      ALTER TABLE orders 
+      ADD CONSTRAINT fk_orders_customer 
+      FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Orders customer foreign key constraint already exists');
+  }
+  
+  try {
+    await pool.execute(`
+      ALTER TABLE orders 
+      ADD CONSTRAINT fk_orders_restaurant 
+      FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Orders restaurant foreign key constraint already exists');
+  }
+  
+  try {
+    await pool.execute(`
+      ALTER TABLE orders 
+      ADD CONSTRAINT fk_orders_agent 
+      FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE SET NULL
+    `);
+  } catch (err) {
+    console.log('- Orders agent foreign key constraint already exists');
+  }
+  
+  console.log('✓ Orders table ready');
+}
 
-  // 6. Create order_items table (depends on orders and menu_items)
+async function createOrderItemsTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS order_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
       order_id INT NOT NULL,
       menu_item_id INT NOT NULL,
       quantity INT NOT NULL,
-      price DECIMAL(10,2) NOT NULL,
-      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-      FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
+      price DECIMAL(10,2) NOT NULL
     )
   `);
-  console.log('✓ Order items table created');
+  
+  // Add foreign key constraints
+  try {
+    await pool.execute(`
+      ALTER TABLE order_items 
+      ADD CONSTRAINT fk_order_items_order 
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Order items order foreign key constraint already exists');
+  }
+  
+  try {
+    await pool.execute(`
+      ALTER TABLE order_items 
+      ADD CONSTRAINT fk_order_items_menu_item 
+      FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Order items menu item foreign key constraint already exists');
+  }
+  
+  console.log('✓ Order items table ready');
+}
 
-  // 7. Create payments table (depends on orders)
+async function createPaymentsTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS payments (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -179,13 +328,25 @@ async function createTables() {
       description TEXT,
       reason TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ Payments table created');
+  
+  // Add foreign key constraint
+  try {
+    await pool.execute(`
+      ALTER TABLE payments 
+      ADD CONSTRAINT fk_payments_order 
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Payments foreign key constraint already exists');
+  }
+  
+  console.log('✓ Payments table ready');
+}
 
-  // 8. Create delivery_locations table (depends on orders and users)
+async function createDeliveryLocationsTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS delivery_locations (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -193,42 +354,79 @@ async function createTables() {
       agent_id INT NOT NULL,
       latitude DECIMAL(10, 8) NOT NULL,
       longitude DECIMAL(11, 8) NOT NULL,
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-      FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE CASCADE
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ Delivery locations table created');
+  
+  // Add foreign key constraints
+  try {
+    await pool.execute(`
+      ALTER TABLE delivery_locations 
+      ADD CONSTRAINT fk_delivery_locations_order 
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Delivery locations order foreign key constraint already exists');
+  }
+  
+  try {
+    await pool.execute(`
+      ALTER TABLE delivery_locations 
+      ADD CONSTRAINT fk_delivery_locations_agent 
+      FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- Delivery locations agent foreign key constraint already exists');
+  }
+  
+  console.log('✓ Delivery locations table ready');
+}
 
-  // 9. Create user_sessions table (depends on users)
+async function createUserSessionsTable() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS user_sessions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NOT NULL,
       token VARCHAR(500) NOT NULL,
       expires_at TIMESTAMP NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  console.log('✓ User sessions table created');
-
-  // Insert default admin user if not exists
-  const [adminExists] = await pool.execute(
-    'SELECT id FROM users WHERE email = ? AND role = ?',
-    ['admin@smartbite.cm', 'admin']
-  );
-
-  if (adminExists.length === 0) {
-    const bcrypt = await import('bcryptjs');
-    const hashedPassword = await bcrypt.hash('admin123', 10);
-    
-    await pool.execute(
-      'INSERT INTO users (name, email, password, role, town) VALUES (?, ?, ?, ?, ?)',
-      ['SmartBite Admin', 'admin@smartbite.cm', hashedPassword, 'admin', 'Douala']
-    );
-    console.log('✓ Default admin user created');
+  
+  // Add foreign key constraint
+  try {
+    await pool.execute(`
+      ALTER TABLE user_sessions 
+      ADD CONSTRAINT fk_user_sessions_user 
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    `);
+  } catch (err) {
+    console.log('- User sessions foreign key constraint already exists');
   }
+  
+  console.log('✓ User sessions table ready');
+}
 
-  console.log('🎉 All database tables created successfully!');
+async function createDefaultAdmin() {
+  try {
+    const [adminExists] = await pool.execute(
+      'SELECT id FROM users WHERE email = ? AND role = ?',
+      ['admin@smartbite.cm', 'admin']
+    );
+
+    if (adminExists.length === 0) {
+      const bcrypt = await import('bcryptjs');
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      
+      await pool.execute(
+        'INSERT INTO users (name, email, password, role, town) VALUES (?, ?, ?, ?, ?)',
+        ['SmartBite Admin', 'admin@smartbite.cm', hashedPassword, 'admin', 'Douala']
+      );
+      console.log('✓ Default admin user created');
+    } else {
+      console.log('✓ Default admin user already exists');
+    }
+  } catch (error) {
+    console.log('Note: Could not create default admin user:', error.message);
+  }
 }
