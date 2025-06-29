@@ -122,24 +122,56 @@ async function adaptToExistingSchema() {
     `);
     console.log('✓ Restaurant categories table ready');
 
-    // Create menu_items table (enhanced version of menu)
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS menu_items (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        restaurant_id INT NOT NULL,
-        item_name VARCHAR(255) NOT NULL,
-        item_description TEXT,
-        item_price DECIMAL(10,2) NOT NULL,
-        image VARCHAR(500),
-        category VARCHAR(100) NOT NULL,
-        prep_time INT NOT NULL DEFAULT 15,
-        is_available BOOLEAN DEFAULT true,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (restaurant_id) REFERENCES restaurants_info(id) ON DELETE CASCADE
-      )
-    `);
-    console.log('✓ Menu items table ready');
+    // Enhance existing menu table with additional columns
+    if (tableNames.includes('menu')) {
+      const [menuColumns] = await pool.execute(`
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'menu'
+      `, [dbConfig.database]);
+      
+      const columnNames = menuColumns.map(row => row.COLUMN_NAME);
+
+      // Add missing columns to menu table
+      const columnsToAdd = [
+        { name: 'restaurant_id', definition: 'INT' },
+        { name: 'category', definition: 'VARCHAR(100) DEFAULT "Main Course"' },
+        { name: 'prep_time', definition: 'INT DEFAULT 15' },
+        { name: 'is_available', definition: 'BOOLEAN DEFAULT true' },
+        { name: 'image', definition: 'VARCHAR(500)' },
+        { name: 'created_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'updated_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' }
+      ];
+
+      for (const column of columnsToAdd) {
+        if (!columnNames.includes(column.name)) {
+          try {
+            await pool.execute(`ALTER TABLE menu ADD COLUMN ${column.name} ${column.definition}`);
+            console.log(`✓ Added ${column.name} column to menu table`);
+          } catch (err) {
+            console.log(`- Column ${column.name} might already exist`);
+          }
+        }
+      }
+
+      // Create an alias view for menu_items
+      await pool.execute(`
+        CREATE OR REPLACE VIEW menu_items AS
+        SELECT 
+          menu_id,
+          restaurant_id,
+          item_name,
+          item_description,
+          item_price,
+          category,
+          prep_time,
+          is_available,
+          image,
+          created_at,
+          updated_at
+        FROM menu
+      `);
+      console.log('✓ Menu items view created');
+    }
 
     // Enhance existing orders table
     const [orderColumns] = await pool.execute(`

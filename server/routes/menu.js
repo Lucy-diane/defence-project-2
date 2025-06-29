@@ -9,7 +9,7 @@ router.get('/restaurant/:restaurantId', async (req, res) => {
   try {
     const { category, available } = req.query;
     
-    let query = 'SELECT * FROM menu_items WHERE restaurant_id = ?';
+    let query = 'SELECT menu_id as id, item_name, item_description, item_price, restaurant_id, category, prep_time, is_available, image FROM menu_items WHERE restaurant_id = ?';
     const params = [req.params.restaurantId];
 
     if (category) {
@@ -25,7 +25,21 @@ router.get('/restaurant/:restaurantId', async (req, res) => {
     query += ' ORDER BY category, item_name';
 
     const [menuItems] = await pool.execute(query, params);
-    res.json(menuItems);
+    
+    // Transform to match frontend expectations
+    const transformedItems = menuItems.map(item => ({
+      id: item.id,
+      restaurant_id: item.restaurant_id,
+      item_name: item.item_name,
+      item_description: item.item_description,
+      item_price: item.item_price,
+      category: item.category,
+      prep_time: item.prep_time || 15,
+      is_available: item.is_available !== undefined ? item.is_available : true,
+      image: item.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg'
+    }));
+
+    res.json(transformedItems);
   } catch (error) {
     console.error('Get menu items error:', error);
     res.status(500).json({ error: 'Failed to fetch menu items' });
@@ -36,7 +50,7 @@ router.get('/restaurant/:restaurantId', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [menuItems] = await pool.execute(
-      'SELECT * FROM menu_items WHERE id = ?',
+      'SELECT menu_id as id, item_name, item_description, item_price, restaurant_id, category, prep_time, is_available, image FROM menu_items WHERE menu_id = ?',
       [req.params.id]
     );
 
@@ -44,7 +58,20 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Menu item not found' });
     }
 
-    res.json(menuItems[0]);
+    const item = menuItems[0];
+    const transformedItem = {
+      id: item.id,
+      restaurant_id: item.restaurant_id,
+      item_name: item.item_name,
+      item_description: item.item_description,
+      item_price: item.item_price,
+      category: item.category,
+      prep_time: item.prep_time || 15,
+      is_available: item.is_available !== undefined ? item.is_available : true,
+      image: item.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg'
+    };
+
+    res.json(transformedItem);
   } catch (error) {
     console.error('Get menu item error:', error);
     res.status(500).json({ error: 'Failed to fetch menu item' });
@@ -76,9 +103,9 @@ router.post('/', authenticateToken, requireRole(['owner']), async (req, res) => 
 
     const [result] = await pool.execute(
       `INSERT INTO menu_items 
-       (restaurant_id, item_name, item_description, item_price, image, category, prep_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [restaurant_id, item_name, item_description, item_price, image, category, prep_time]
+       (restaurant_id, item_name, item_description, item_price, image, category, prep_time, is_available)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [restaurant_id, item_name, item_description, item_price, image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg', category, prep_time || 15, true]
     );
 
     res.status(201).json({
@@ -101,7 +128,7 @@ router.put('/:id', authenticateToken, requireRole(['owner']), async (req, res) =
       `SELECT mi.*, r.user_id 
        FROM menu_items mi
        JOIN restaurants_info r ON mi.restaurant_id = r.id
-       WHERE mi.id = ?`,
+       WHERE mi.menu_id = ?`,
       [itemId]
     );
 
@@ -137,7 +164,7 @@ router.put('/:id', authenticateToken, requireRole(['owner']), async (req, res) =
     if (updateFields.length > 0) {
       updateValues.push(itemId);
       await pool.execute(
-        `UPDATE menu_items SET ${updateFields.join(', ')} WHERE id = ?`,
+        `UPDATE menu_items SET ${updateFields.join(', ')} WHERE menu_id = ?`,
         updateValues
       );
     }
@@ -159,7 +186,7 @@ router.delete('/:id', authenticateToken, requireRole(['owner']), async (req, res
       `SELECT mi.*, r.user_id 
        FROM menu_items mi
        JOIN restaurants_info r ON mi.restaurant_id = r.id
-       WHERE mi.id = ?`,
+       WHERE mi.menu_id = ?`,
       [itemId]
     );
 
@@ -171,7 +198,7 @@ router.delete('/:id', authenticateToken, requireRole(['owner']), async (req, res
       return res.status(403).json({ error: 'Not authorized to delete this menu item' });
     }
 
-    await pool.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
+    await pool.execute('DELETE FROM menu_items WHERE menu_id = ?', [itemId]);
 
     res.json({ message: 'Menu item deleted successfully' });
   } catch (error) {

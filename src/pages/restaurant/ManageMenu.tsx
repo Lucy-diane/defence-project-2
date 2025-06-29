@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,82 +8,105 @@ import { Plus, Edit, Trash2, ArrowLeft, Clock, DollarSign, Eye, EyeOff, X } from
 
 export default function ManageMenu() {
   const { user } = useAuth();
-  const { getRestaurantByOwner } = useRestaurants();
-  const { getMenuByRestaurant, addMenuItem, updateMenuItem, deleteMenuItem, toggleAvailability } = useMenu();
+  const { myRestaurant, fetchMyRestaurant } = useRestaurants();
+  const { menuItems, fetchMenuItems, addMenuItem, updateMenuItem, deleteMenuItem, toggleAvailability, loading } = useMenu();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    price: '',
+    item_name: '',
+    item_description: '',
+    item_price: '',
     category: '',
-    prepTime: '',
+    prep_time: '',
     image: ''
   });
 
-  const restaurant = user ? getRestaurantByOwner(user.id) : undefined;
-  const menuItems = restaurant ? getMenuByRestaurant(restaurant.id) : [];
+  useEffect(() => {
+    if (user?.role === 'owner') {
+      fetchMyRestaurant();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (myRestaurant) {
+      fetchMenuItems(myRestaurant.id);
+    }
+  }, [myRestaurant]);
 
   const categories = ['Main Course', 'Appetizer', 'Dessert', 'Beverages', 'Seafood', 'Vegetarian', 'Chicken', 'Healthy', 'Wings', 'Salads'];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!restaurant) return;
+    if (!myRestaurant) return;
 
-    const itemData = {
-      restaurantId: restaurant.id,
-      name: formData.name,
-      description: formData.description,
-      price: parseInt(formData.price),
-      category: formData.category,
-      prepTime: parseInt(formData.prepTime),
-      image: formData.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg',
-      isAvailable: true
-    };
+    try {
+      const itemData = {
+        restaurant_id: myRestaurant.id,
+        item_name: formData.item_name,
+        item_description: formData.item_description,
+        item_price: parseInt(formData.item_price),
+        category: formData.category,
+        prep_time: parseInt(formData.prep_time),
+        image: formData.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg'
+      };
 
-    if (editingItem) {
-      updateMenuItem(editingItem, itemData);
-    } else {
-      addMenuItem(itemData);
+      if (editingItem) {
+        await updateMenuItem(editingItem, itemData);
+      } else {
+        await addMenuItem(itemData);
+      }
+      
+      // Reset form
+      setFormData({
+        item_name: '',
+        item_description: '',
+        item_price: '',
+        category: '',
+        prep_time: '',
+        image: ''
+      });
+      setShowAddForm(false);
+      setEditingItem(null);
+    } catch (error) {
+      console.error('Failed to save menu item:', error);
+      alert('Failed to save menu item. Please try again.');
     }
-    
-    // Reset form
-    setFormData({
-      name: '',
-      description: '',
-      price: '',
-      category: '',
-      prepTime: '',
-      image: ''
-    });
-    setShowAddForm(false);
-    setEditingItem(null);
   };
 
   const handleEdit = (item: typeof menuItems[0]) => {
     setFormData({
-      name: item.name,
-      description: item.description,
-      price: item.price.toString(),
+      item_name: item.item_name,
+      item_description: item.item_description,
+      item_price: item.item_price.toString(),
       category: item.category,
-      prepTime: item.prepTime.toString(),
+      prep_time: item.prep_time.toString(),
       image: item.image
     });
     setEditingItem(item.id);
     setShowAddForm(true);
   };
 
-  const handleDelete = (itemId: string) => {
+  const handleDelete = async (itemId: string) => {
     if (confirm('Are you sure you want to delete this menu item?')) {
-      deleteMenuItem(itemId);
+      try {
+        await deleteMenuItem(itemId);
+      } catch (error) {
+        console.error('Failed to delete menu item:', error);
+        alert('Failed to delete menu item. Please try again.');
+      }
     }
   };
 
-  const handleToggleAvailability = (itemId: string) => {
-    toggleAvailability(itemId);
+  const handleToggleAvailability = async (itemId: string) => {
+    try {
+      await toggleAvailability(itemId);
+    } catch (error) {
+      console.error('Failed to toggle availability:', error);
+      alert('Failed to update availability. Please try again.');
+    }
   };
 
-  if (!restaurant) {
+  if (!myRestaurant) {
     return (
       <Layout title="Manage Menu">
         <div className="text-center py-12">
@@ -92,6 +115,16 @@ export default function ManageMenu() {
           <Link to="/owner" className="text-orange-600 hover:text-orange-700">
             ← Back to dashboard
           </Link>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Layout title="Manage Menu">
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
         </div>
       </Layout>
     );
@@ -113,7 +146,7 @@ export default function ManageMenu() {
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">{restaurant.name} Menu</h1>
+          <h1 className="text-3xl font-bold text-gray-900">{myRestaurant.name} Menu</h1>
           <p className="text-gray-600 mt-1">{menuItems.length} items in your menu</p>
         </div>
         <button
@@ -132,44 +165,44 @@ export default function ManageMenu() {
             <div className="relative">
               <img
                 src={item.image}
-                alt={item.name}
+                alt={item.item_name}
                 className="w-full h-40 object-cover"
               />
               <div className="absolute top-3 right-3 flex space-x-2">
                 <button
                   onClick={() => handleToggleAvailability(item.id)}
                   className={`p-2 rounded-full ${
-                    item.isAvailable 
+                    item.is_available 
                       ? 'bg-green-600 hover:bg-green-700' 
                       : 'bg-gray-600 hover:bg-gray-700'
                   } text-white transition-colors`}
-                  title={item.isAvailable ? 'Mark as unavailable' : 'Mark as available'}
+                  title={item.is_available ? 'Mark as unavailable' : 'Mark as available'}
                 >
-                  {item.isAvailable ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  {item.is_available ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                 </button>
               </div>
               <div className="absolute bottom-3 left-3 bg-white bg-opacity-90 backdrop-blur-sm px-2 py-1 rounded-full text-xs font-medium">
-                {item.prepTime} min
+                {item.prep_time} min
               </div>
             </div>
             
             <div className="p-4">
               <div className="flex justify-between items-start mb-2">
-                <h3 className="text-lg font-bold text-gray-900">{item.name}</h3>
+                <h3 className="text-lg font-bold text-gray-900">{item.item_name}</h3>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  item.isAvailable 
+                  item.is_available 
                     ? 'bg-green-100 text-green-600' 
                     : 'bg-red-100 text-red-600'
                 }`}>
-                  {item.isAvailable ? 'Available' : 'Unavailable'}
+                  {item.is_available ? 'Available' : 'Unavailable'}
                 </span>
               </div>
               
-              <p className="text-gray-600 mb-3 text-sm line-clamp-2">{item.description}</p>
+              <p className="text-gray-600 mb-3 text-sm line-clamp-2">{item.item_description}</p>
               
               <div className="flex justify-between items-center mb-4">
                 <span className="text-xl font-bold text-orange-600">
-                  {item.price.toLocaleString()} XAF
+                  {item.item_price.toLocaleString()} XAF
                 </span>
                 <span className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
                   {item.category}
@@ -227,11 +260,11 @@ export default function ManageMenu() {
                     setShowAddForm(false);
                     setEditingItem(null);
                     setFormData({
-                      name: '',
-                      description: '',
-                      price: '',
+                      item_name: '',
+                      item_description: '',
+                      item_price: '',
                       category: '',
-                      prepTime: '',
+                      prep_time: '',
                       image: ''
                     });
                   }}
@@ -249,8 +282,8 @@ export default function ManageMenu() {
                   <input
                     type="text"
                     required
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    value={formData.item_name}
+                    onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                     placeholder="e.g., Ndolé with Plantains"
                   />
@@ -262,8 +295,8 @@ export default function ManageMenu() {
                   </label>
                   <textarea
                     required
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    value={formData.item_description}
+                    onChange={(e) => setFormData({ ...formData, item_description: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 resize-none"
                     rows={3}
                     placeholder="Describe your dish..."
@@ -281,8 +314,8 @@ export default function ManageMenu() {
                         type="number"
                         required
                         min="0"
-                        value={formData.price}
-                        onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                        value={formData.item_price}
+                        onChange={(e) => setFormData({ ...formData, item_price: e.target.value })}
                         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         placeholder="2500"
                       />
@@ -299,8 +332,8 @@ export default function ManageMenu() {
                         type="number"
                         required
                         min="1"
-                        value={formData.prepTime}
-                        onChange={(e) => setFormData({ ...formData, prepTime: e.target.value })}
+                        value={formData.prep_time}
+                        onChange={(e) => setFormData({ ...formData, prep_time: e.target.value })}
                         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         placeholder="25"
                       />
@@ -345,11 +378,11 @@ export default function ManageMenu() {
                       setShowAddForm(false);
                       setEditingItem(null);
                       setFormData({
-                        name: '',
-                        description: '',
-                        price: '',
+                        item_name: '',
+                        item_description: '',
+                        item_price: '',
                         category: '',
-                        prepTime: '',
+                        prep_time: '',
                         image: ''
                       });
                     }}
