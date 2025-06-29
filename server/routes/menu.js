@@ -28,14 +28,14 @@ router.get('/restaurant/:restaurantId', async (req, res) => {
     
     // Transform to match frontend expectations
     const transformedItems = menuItems.map(item => ({
-      id: item.id,
-      restaurant_id: item.restaurant_id,
+      id: item.id.toString(),
+      restaurant_id: item.restaurant_id.toString(),
       item_name: item.item_name,
       item_description: item.item_description,
-      item_price: item.item_price,
+      item_price: parseFloat(item.item_price),
       category: item.category,
       prep_time: item.prep_time || 15,
-      is_available: item.is_available !== undefined ? item.is_available : true,
+      is_available: Boolean(item.is_available),
       image: item.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg'
     }));
 
@@ -60,14 +60,14 @@ router.get('/:id', async (req, res) => {
 
     const item = menuItems[0];
     const transformedItem = {
-      id: item.id,
-      restaurant_id: item.restaurant_id,
+      id: item.id.toString(),
+      restaurant_id: item.restaurant_id.toString(),
       item_name: item.item_name,
       item_description: item.item_description,
-      item_price: item.item_price,
+      item_price: parseFloat(item.item_price),
       category: item.category,
       prep_time: item.prep_time || 15,
-      is_available: item.is_available !== undefined ? item.is_available : true,
+      is_available: Boolean(item.is_available),
       image: item.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg'
     };
 

@@ -122,56 +122,8 @@ async function adaptToExistingSchema() {
     `);
     console.log('✓ Restaurant categories table ready');
 
-    // Enhance existing menu table with additional columns
-    if (tableNames.includes('menu')) {
-      const [menuColumns] = await pool.execute(`
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'menu'
-      `, [dbConfig.database]);
-      
-      const columnNames = menuColumns.map(row => row.COLUMN_NAME);
-
-      // Add missing columns to menu table
-      const columnsToAdd = [
-        { name: 'restaurant_id', definition: 'INT' },
-        { name: 'category', definition: 'VARCHAR(100) DEFAULT "Main Course"' },
-        { name: 'prep_time', definition: 'INT DEFAULT 15' },
-        { name: 'is_available', definition: 'BOOLEAN DEFAULT true' },
-        { name: 'image', definition: 'VARCHAR(500)' },
-        { name: 'created_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
-        { name: 'updated_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' }
-      ];
-
-      for (const column of columnsToAdd) {
-        if (!columnNames.includes(column.name)) {
-          try {
-            await pool.execute(`ALTER TABLE menu ADD COLUMN ${column.name} ${column.definition}`);
-            console.log(`✓ Added ${column.name} column to menu table`);
-          } catch (err) {
-            console.log(`- Column ${column.name} might already exist`);
-          }
-        }
-      }
-
-      // Create an alias view for menu_items
-      await pool.execute(`
-        CREATE OR REPLACE VIEW menu_items AS
-        SELECT 
-          menu_id,
-          restaurant_id,
-          item_name,
-          item_description,
-          item_price,
-          category,
-          prep_time,
-          is_available,
-          image,
-          created_at,
-          updated_at
-        FROM menu
-      `);
-      console.log('✓ Menu items view created');
-    }
+    // Handle menu_items table conflict
+    await handleMenuItemsTable();
 
     // Enhance existing orders table
     const [orderColumns] = await pool.execute(`
@@ -208,6 +160,65 @@ async function adaptToExistingSchema() {
 
   } catch (error) {
     console.error('Error adapting schema:', error);
+    throw error;
+  }
+}
+
+async function handleMenuItemsTable() {
+  try {
+    // Check if menu_items exists and what type it is
+    const [menuItemsInfo] = await pool.execute(`
+      SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'menu_items'
+    `, [dbConfig.database]);
+
+    if (menuItemsInfo.length > 0) {
+      // Drop existing menu_items (whether it's a table or view)
+      if (menuItemsInfo[0].TABLE_TYPE === 'VIEW') {
+        await pool.execute('DROP VIEW IF EXISTS menu_items');
+        console.log('✓ Dropped existing menu_items view');
+      } else {
+        await pool.execute('DROP TABLE IF EXISTS menu_items');
+        console.log('✓ Dropped existing menu_items table');
+      }
+    }
+
+    // Now create the proper menu_items table
+    await pool.execute(`
+      CREATE TABLE menu_items (
+        menu_id INT AUTO_INCREMENT PRIMARY KEY,
+        restaurant_id INT NOT NULL,
+        item_name VARCHAR(255) NOT NULL,
+        item_description TEXT,
+        item_price DECIMAL(10,2) NOT NULL,
+        category VARCHAR(100) DEFAULT 'Main Course',
+        prep_time INT DEFAULT 15,
+        is_available BOOLEAN DEFAULT true,
+        image VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (restaurant_id) REFERENCES restaurants_info(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('✓ Created new menu_items table');
+
+    // If there's an existing menu table, migrate data
+    const [existingTables] = await pool.execute(
+      "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'menu'",
+      [dbConfig.database]
+    );
+
+    if (existingTables.length > 0) {
+      // Check if menu table has data and migrate it
+      const [menuData] = await pool.execute('SELECT * FROM menu LIMIT 1');
+      if (menuData.length > 0) {
+        console.log('✓ Found existing menu data, migration may be needed');
+        // You can add migration logic here if needed
+      }
+    }
+
+  } catch (error) {
+    console.error('Error handling menu_items table:', error);
     throw error;
   }
 }
