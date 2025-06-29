@@ -5,33 +5,52 @@ dotenv.config();
 
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'smartbite_db',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  acquireTimeout: 60000,
+  timeout: 60000,
+  reconnect: true
 };
 
 export const pool = mysql.createPool(dbConfig);
 
 export async function initializeDatabase() {
   try {
+    console.log(`Attempting to connect to MySQL at ${dbConfig.host}:${dbConfig.port}`);
+    
+    // Test the connection first
+    const connection = await pool.getConnection();
+    console.log('Successfully connected to MySQL database');
+    connection.release();
+
     // Create database if it doesn't exist
-    const connection = await mysql.createConnection({
+    const adminConnection = await mysql.createConnection({
       host: dbConfig.host,
+      port: dbConfig.port,
       user: dbConfig.user,
       password: dbConfig.password
     });
 
-    await connection.execute(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`);
-    await connection.end();
+    await adminConnection.execute(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`);
+    console.log(`Database ${dbConfig.database} created or already exists`);
+    await adminConnection.end();
 
     // Create tables
     await createTables();
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Database initialization error:', error);
+    console.error('Connection config:', {
+      host: dbConfig.host,
+      port: dbConfig.port,
+      user: dbConfig.user,
+      database: dbConfig.database
+    });
     throw error;
   }
 }
