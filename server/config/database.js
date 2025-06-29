@@ -11,10 +11,7 @@ const dbConfig = {
   database: process.env.DB_NAME || 'smartbite_db',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true
+  queueLimit: 0
 };
 
 export const pool = mysql.createPool(dbConfig);
@@ -40,7 +37,7 @@ export async function initializeDatabase() {
     console.log(`Database ${dbConfig.database} created or already exists`);
     await adminConnection.end();
 
-    // Create tables
+    // Create tables in correct order
     await createTables();
     console.log('Database initialized successfully');
   } catch (error) {
@@ -56,9 +53,11 @@ export async function initializeDatabase() {
 }
 
 async function createTables() {
-  const tables = [
-    // Users table
-    `CREATE TABLE IF NOT EXISTS users (
+  // Create tables in the correct order to avoid foreign key constraint errors
+  
+  // 1. First create users table (no dependencies)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) UNIQUE NOT NULL,
@@ -69,10 +68,13 @@ async function createTables() {
       is_active BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )`,
+    )
+  `);
+  console.log('✓ Users table created');
 
-    // Restaurants table
-    `CREATE TABLE IF NOT EXISTS restaurants (
+  // 2. Create restaurants table (depends on users)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS restaurants (
       id INT AUTO_INCREMENT PRIMARY KEY,
       owner_id INT NOT NULL,
       name VARCHAR(255) NOT NULL,
@@ -89,18 +91,24 @@ async function createTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
-    )`,
+    )
+  `);
+  console.log('✓ Restaurants table created');
 
-    // Restaurant categories table
-    `CREATE TABLE IF NOT EXISTS restaurant_categories (
+  // 3. Create restaurant_categories table (depends on restaurants)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS restaurant_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       restaurant_id INT NOT NULL,
       category VARCHAR(100) NOT NULL,
       FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
-    )`,
+    )
+  `);
+  console.log('✓ Restaurant categories table created');
 
-    // Menu items table
-    `CREATE TABLE IF NOT EXISTS menu_items (
+  // 4. Create menu_items table (depends on restaurants)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS menu_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
       restaurant_id INT NOT NULL,
       name VARCHAR(255) NOT NULL,
@@ -113,10 +121,13 @@ async function createTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
-    )`,
+    )
+  `);
+  console.log('✓ Menu items table created');
 
-    // Orders table
-    `CREATE TABLE IF NOT EXISTS orders (
+  // 5. Create orders table (depends on users and restaurants)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
       customer_id INT NOT NULL,
       restaurant_id INT NOT NULL,
@@ -127,15 +138,19 @@ async function createTables() {
       customer_phone VARCHAR(20) NOT NULL,
       payment_method VARCHAR(50) DEFAULT 'cash',
       payment_status ENUM('pending', 'paid', 'failed') DEFAULT 'pending',
+      payment_reference VARCHAR(255) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE,
       FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE SET NULL
-    )`,
+    )
+  `);
+  console.log('✓ Orders table created');
 
-    // Order items table
-    `CREATE TABLE IF NOT EXISTS order_items (
+  // 6. Create order_items table (depends on orders and menu_items)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS order_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
       order_id INT NOT NULL,
       menu_item_id INT NOT NULL,
@@ -143,10 +158,36 @@ async function createTables() {
       price DECIMAL(10,2) NOT NULL,
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
       FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
-    )`,
+    )
+  `);
+  console.log('✓ Order items table created');
 
-    // Delivery locations table for tracking
-    `CREATE TABLE IF NOT EXISTS delivery_locations (
+  // 7. Create payments table (depends on orders)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id INT NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      currency VARCHAR(3) DEFAULT 'XAF',
+      phone_number VARCHAR(20) NOT NULL,
+      payment_method VARCHAR(50) NOT NULL,
+      reference VARCHAR(255) UNIQUE NOT NULL,
+      external_reference VARCHAR(255),
+      status ENUM('pending', 'successful', 'failed', 'cancelled') DEFAULT 'pending',
+      operator VARCHAR(50),
+      operator_reference VARCHAR(255),
+      description TEXT,
+      reason TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    )
+  `);
+  console.log('✓ Payments table created');
+
+  // 8. Create delivery_locations table (depends on orders and users)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS delivery_locations (
       id INT AUTO_INCREMENT PRIMARY KEY,
       order_id INT NOT NULL,
       agent_id INT NOT NULL,
@@ -155,22 +196,22 @@ async function createTables() {
       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
       FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE CASCADE
-    )`,
+    )
+  `);
+  console.log('✓ Delivery locations table created');
 
-    // User sessions table
-    `CREATE TABLE IF NOT EXISTS user_sessions (
+  // 9. Create user_sessions table (depends on users)
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NOT NULL,
       token VARCHAR(500) NOT NULL,
       expires_at TIMESTAMP NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )`
-  ];
-
-  for (const table of tables) {
-    await pool.execute(table);
-  }
+    )
+  `);
+  console.log('✓ User sessions table created');
 
   // Insert default admin user if not exists
   const [adminExists] = await pool.execute(
@@ -186,6 +227,8 @@ async function createTables() {
       'INSERT INTO users (name, email, password, role, town) VALUES (?, ?, ?, ?, ?)',
       ['SmartBite Admin', 'admin@smartbite.cm', hashedPassword, 'admin', 'Douala']
     );
-    console.log('Default admin user created');
+    console.log('✓ Default admin user created');
   }
+
+  console.log('🎉 All database tables created successfully!');
 }
