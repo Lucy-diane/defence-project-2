@@ -22,7 +22,7 @@ router.get('/restaurant/:restaurantId', async (req, res) => {
       params.push(available === 'true');
     }
 
-    query += ' ORDER BY category, name';
+    query += ' ORDER BY category, item_name';
 
     const [menuItems] = await pool.execute(query, params);
     res.json(menuItems);
@@ -56,9 +56,9 @@ router.post('/', authenticateToken, requireRole(['owner']), async (req, res) => 
   try {
     const {
       restaurant_id,
-      name,
-      description,
-      price,
+      item_name,
+      item_description,
+      item_price,
       image,
       category,
       prep_time
@@ -66,19 +66,19 @@ router.post('/', authenticateToken, requireRole(['owner']), async (req, res) => 
 
     // Verify restaurant ownership
     const [restaurants] = await pool.execute(
-      'SELECT owner_id FROM restaurants WHERE id = ?',
+      'SELECT user_id FROM restaurants_info WHERE id = ?',
       [restaurant_id]
     );
 
-    if (restaurants.length === 0 || restaurants[0].owner_id !== req.user.id) {
+    if (restaurants.length === 0 || restaurants[0].user_id !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized to add items to this restaurant' });
     }
 
     const [result] = await pool.execute(
       `INSERT INTO menu_items 
-       (restaurant_id, name, description, price, image, category, prep_time)
+       (restaurant_id, item_name, item_description, item_price, image, category, prep_time)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [restaurant_id, name, description, price, image, category, prep_time]
+      [restaurant_id, item_name, item_description, item_price, image, category, prep_time]
     );
 
     res.status(201).json({
@@ -98,9 +98,9 @@ router.put('/:id', authenticateToken, requireRole(['owner']), async (req, res) =
 
     // Verify ownership
     const [items] = await pool.execute(
-      `SELECT mi.*, r.owner_id 
+      `SELECT mi.*, r.user_id 
        FROM menu_items mi
-       JOIN restaurants r ON mi.restaurant_id = r.id
+       JOIN restaurants_info r ON mi.restaurant_id = r.id
        WHERE mi.id = ?`,
       [itemId]
     );
@@ -109,14 +109,14 @@ router.put('/:id', authenticateToken, requireRole(['owner']), async (req, res) =
       return res.status(404).json({ error: 'Menu item not found' });
     }
 
-    if (items[0].owner_id !== req.user.id) {
+    if (items[0].user_id !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized to update this menu item' });
     }
 
     const {
-      name,
-      description,
-      price,
+      item_name,
+      item_description,
+      item_price,
       image,
       category,
       prep_time,
@@ -126,9 +126,9 @@ router.put('/:id', authenticateToken, requireRole(['owner']), async (req, res) =
     const updateFields = [];
     const updateValues = [];
 
-    if (name !== undefined) { updateFields.push('name = ?'); updateValues.push(name); }
-    if (description !== undefined) { updateFields.push('description = ?'); updateValues.push(description); }
-    if (price !== undefined) { updateFields.push('price = ?'); updateValues.push(price); }
+    if (item_name !== undefined) { updateFields.push('item_name = ?'); updateValues.push(item_name); }
+    if (item_description !== undefined) { updateFields.push('item_description = ?'); updateValues.push(item_description); }
+    if (item_price !== undefined) { updateFields.push('item_price = ?'); updateValues.push(item_price); }
     if (image !== undefined) { updateFields.push('image = ?'); updateValues.push(image); }
     if (category !== undefined) { updateFields.push('category = ?'); updateValues.push(category); }
     if (prep_time !== undefined) { updateFields.push('prep_time = ?'); updateValues.push(prep_time); }
@@ -156,9 +156,9 @@ router.delete('/:id', authenticateToken, requireRole(['owner']), async (req, res
 
     // Verify ownership
     const [items] = await pool.execute(
-      `SELECT mi.*, r.owner_id 
+      `SELECT mi.*, r.user_id 
        FROM menu_items mi
-       JOIN restaurants r ON mi.restaurant_id = r.id
+       JOIN restaurants_info r ON mi.restaurant_id = r.id
        WHERE mi.id = ?`,
       [itemId]
     );
@@ -167,7 +167,7 @@ router.delete('/:id', authenticateToken, requireRole(['owner']), async (req, res
       return res.status(404).json({ error: 'Menu item not found' });
     }
 
-    if (items[0].owner_id !== req.user.id) {
+    if (items[0].user_id !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized to delete this menu item' });
     }
 

@@ -1,67 +1,104 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { mockRestaurants, type Restaurant } from '../data/mockData';
+import { restaurantsAPI } from '../services/api';
+
+export interface Restaurant {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+  town: string;
+  rating: number;
+  delivery_time: string;
+  delivery_fee: number;
+  min_order: number;
+  categories: string[];
+  is_active: boolean;
+  user_id: string;
+  phone: string;
+  address: string;
+}
 
 interface RestaurantContextType {
   restaurants: Restaurant[];
-  createRestaurant: (restaurantData: Omit<Restaurant, 'id' | 'rating' | 'isActive'>) => string;
-  updateRestaurant: (restaurantId: string, updates: Partial<Restaurant>) => void;
+  loading: boolean;
+  createRestaurant: (restaurantData: any) => Promise<string>;
+  updateRestaurant: (restaurantId: string, updates: Partial<Restaurant>) => Promise<void>;
   getRestaurantByOwner: (ownerId: string) => Restaurant | undefined;
+  fetchRestaurants: () => Promise<void>;
+  myRestaurant: Restaurant | null;
+  fetchMyRestaurant: () => Promise<void>;
 }
 
 const RestaurantContext = createContext<RestaurantContextType | undefined>(undefined);
 
 export function RestaurantProvider({ children }: { children: React.ReactNode }) {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [myRestaurant, setMyRestaurant] = useState<Restaurant | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    // Load initial restaurants from mockData and localStorage
-    const savedRestaurants = localStorage.getItem('smartbite_restaurants');
-    if (savedRestaurants) {
-      setRestaurants(JSON.parse(savedRestaurants));
-    } else {
-      // Initialize with mock data
-      setRestaurants(mockRestaurants);
-      localStorage.setItem('smartbite_restaurants', JSON.stringify(mockRestaurants));
+  const fetchRestaurants = async () => {
+    try {
+      setLoading(true);
+      const response = await restaurantsAPI.getRestaurants();
+      setRestaurants(response.data);
+    } catch (error) {
+      console.error('Failed to fetch restaurants:', error);
+    } finally {
+      setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('smartbite_restaurants', JSON.stringify(restaurants));
-  }, [restaurants]);
-
-  const createRestaurant = (restaurantData: Omit<Restaurant, 'id' | 'rating' | 'isActive'>): string => {
-    const restaurantId = Date.now().toString();
-    const newRestaurant: Restaurant = {
-      ...restaurantData,
-      id: restaurantId,
-      rating: 0,
-      isActive: true // Auto-approve for demo purposes
-    };
-
-    setRestaurants(prev => [...prev, newRestaurant]);
-    return restaurantId;
   };
 
-  const updateRestaurant = (restaurantId: string, updates: Partial<Restaurant>) => {
-    setRestaurants(prev =>
-      prev.map(restaurant =>
-        restaurant.id === restaurantId
-          ? { ...restaurant, ...updates }
-          : restaurant
-      )
-    );
+  const fetchMyRestaurant = async () => {
+    try {
+      const response = await restaurantsAPI.getMyRestaurant();
+      setMyRestaurant(response.data);
+    } catch (error) {
+      console.error('Failed to fetch my restaurant:', error);
+      setMyRestaurant(null);
+    }
+  };
+
+  const createRestaurant = async (restaurantData: any): Promise<string> => {
+    try {
+      const response = await restaurantsAPI.createRestaurant(restaurantData);
+      await fetchMyRestaurant();
+      await fetchRestaurants();
+      return response.data.restaurantId;
+    } catch (error) {
+      console.error('Failed to create restaurant:', error);
+      throw error;
+    }
+  };
+
+  const updateRestaurant = async (restaurantId: string, updates: Partial<Restaurant>): Promise<void> => {
+    try {
+      await restaurantsAPI.updateRestaurant(restaurantId, updates);
+      await fetchMyRestaurant();
+      await fetchRestaurants();
+    } catch (error) {
+      console.error('Failed to update restaurant:', error);
+      throw error;
+    }
   };
 
   const getRestaurantByOwner = (ownerId: string) => {
-    return restaurants.find(restaurant => restaurant.ownerId === ownerId);
+    return restaurants.find(restaurant => restaurant.user_id === ownerId);
   };
+
+  useEffect(() => {
+    fetchRestaurants();
+  }, []);
 
   return (
     <RestaurantContext.Provider value={{
       restaurants,
+      loading,
       createRestaurant,
       updateRestaurant,
-      getRestaurantByOwner
+      getRestaurantByOwner,
+      fetchRestaurants,
+      myRestaurant,
+      fetchMyRestaurant
     }}>
       {children}
     </RestaurantContext.Provider>

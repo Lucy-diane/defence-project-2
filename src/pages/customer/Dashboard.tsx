@@ -1,19 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { useCart } from '../../contexts/CartContext';
 import { useRestaurants } from '../../contexts/RestaurantContext';
 import { useMenu } from '../../contexts/MenuContext';
 import { cameroonianTowns } from '../../data/mockData';
-import { Search, Filter, Star, Clock, Truck, Plus, ShoppingCart } from 'lucide-react';
+import { Search, Filter, Star, Clock, Truck, ShoppingCart } from 'lucide-react';
 
 export default function CustomerDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTown, setSelectedTown] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const { addItem, items, total } = useCart();
-  const { restaurants } = useRestaurants();
+  const { items, total } = useCart();
+  const { restaurants, loading, fetchRestaurants } = useRestaurants();
   const { getMenuByRestaurant } = useMenu();
+
+  useEffect(() => {
+    fetchRestaurants();
+  }, []);
 
   const filteredRestaurants = restaurants.filter(restaurant => {
     const matchesSearch = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -21,14 +25,29 @@ export default function CustomerDashboard() {
     const matchesTown = !selectedTown || restaurant.town === selectedTown;
     const matchesCategory = !selectedCategory || restaurant.categories.includes(selectedCategory);
     
-    return matchesSearch && matchesTown && matchesCategory && restaurant.isActive;
+    return matchesSearch && matchesTown && matchesCategory && restaurant.is_active;
   });
 
   const allCategories = [...new Set(restaurants.flatMap(r => r.categories))];
 
-  const getRestaurantMenuCount = (restaurantId: string) => {
-    return getMenuByRestaurant(restaurantId).filter(item => item.isAvailable).length;
+  const getRestaurantMenuCount = async (restaurantId: string) => {
+    try {
+      const menuItems = await getMenuByRestaurant(restaurantId);
+      return menuItems.filter(item => item.is_available).length;
+    } catch (error) {
+      return 0;
+    }
   };
+
+  if (loading) {
+    return (
+      <Layout title="Browse Restaurants">
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="Browse Restaurants">
@@ -99,120 +118,116 @@ export default function CustomerDashboard() {
       </div>
 
       {/* Featured Section */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">🔥 Popular This Week</h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          {filteredRestaurants.slice(0, 3).map((restaurant) => (
-            <div key={restaurant.id} className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 border border-orange-100">
-              <div className="relative">
-                <img
-                  src={restaurant.image}
-                  alt={restaurant.name}
-                  className="w-full h-48 object-cover"
-                />
-                <div className="absolute top-4 right-4 bg-white bg-opacity-90 backdrop-blur-sm px-3 py-1 rounded-full flex items-center space-x-1">
-                  <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                  <span className="text-sm font-medium">{restaurant.rating}</span>
-                </div>
-              </div>
-              <div className="p-6">
-                <h3 className="text-xl font-bold text-gray-900 mb-2">{restaurant.name}</h3>
-                <p className="text-gray-600 mb-4 text-sm">{restaurant.description}</p>
-                
-                <div className="flex justify-between items-center mb-4">
-                  <div className="flex items-center text-gray-500 text-sm">
-                    <Clock className="h-4 w-4 mr-1" />
-                    {restaurant.deliveryTime}
-                  </div>
-                  <div className="flex items-center text-gray-500 text-sm">
-                    <Truck className="h-4 w-4 mr-1" />
-                    {restaurant.deliveryFee} XAF
-                  </div>
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <div className="text-sm text-gray-500">
-                    {getRestaurantMenuCount(restaurant.id)} dishes • {restaurant.town}
-                  </div>
-                  <Link
-                    to={`/restaurant/${restaurant.id}`}
-                    className="bg-gradient-to-r from-orange-600 to-green-600 text-white px-6 py-2 rounded-lg font-medium hover:from-orange-700 hover:to-green-700 transition-all duration-200 transform hover:scale-105"
-                  >
-                    Order Now
-                  </Link>
-                </div>
-              </div>
-            </div>
-          ))}
+      {filteredRestaurants.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">🔥 Popular This Week</h2>
+          <div className="grid md:grid-cols-3 gap-6">
+            {filteredRestaurants.slice(0, 3).map((restaurant) => (
+              <RestaurantCard key={restaurant.id} restaurant={restaurant} featured />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* All Restaurants */}
       <div>
         <h2 className="text-2xl font-bold text-gray-900 mb-6">All Restaurants</h2>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredRestaurants.map((restaurant) => (
-            <div key={restaurant.id} className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 border border-gray-100">
-              <div className="relative">
-                <img
-                  src={restaurant.image}
-                  alt={restaurant.name}
-                  className="w-full h-40 object-cover"
-                />
-                <div className="absolute top-3 right-3 bg-white bg-opacity-90 backdrop-blur-sm px-2 py-1 rounded-full flex items-center space-x-1">
-                  <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                  <span className="text-xs font-medium">{restaurant.rating}</span>
-                </div>
-              </div>
-              <div className="p-4">
-                <h3 className="text-lg font-bold text-gray-900 mb-1">{restaurant.name}</h3>
-                <p className="text-gray-600 mb-3 text-sm line-clamp-2">{restaurant.description}</p>
-                
-                <div className="flex justify-between items-center mb-3 text-xs text-gray-500">
-                  <div className="flex items-center">
-                    <Clock className="h-3 w-3 mr-1" />
-                    {restaurant.deliveryTime}
-                  </div>
-                  <div className="flex items-center">
-                    <Truck className="h-3 w-3 mr-1" />
-                    {restaurant.deliveryFee} XAF
-                  </div>
-                </div>
-                
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {restaurant.categories.slice(0, 2).map(category => (
-                    <span key={category} className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
-                      {category}
-                    </span>
-                  ))}
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <div className="text-xs text-gray-500">
-                    {getRestaurantMenuCount(restaurant.id)} dishes • {restaurant.town}
-                  </div>
-                  <Link
-                    to={`/restaurant/${restaurant.id}`}
-                    className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors"
-                  >
-                    View Menu
-                  </Link>
-                </div>
-              </div>
+        {filteredRestaurants.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="text-gray-400 mb-4">
+              <Search className="h-12 w-12 mx-auto" />
             </div>
-          ))}
+            <h3 className="text-xl font-medium text-gray-900 mb-2">No restaurants found</h3>
+            <p className="text-gray-600">Try adjusting your search criteria or check back later for new restaurants.</p>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredRestaurants.map((restaurant) => (
+              <RestaurantCard key={restaurant.id} restaurant={restaurant} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+}
+
+function RestaurantCard({ restaurant, featured = false }: { restaurant: any; featured?: boolean }) {
+  const [menuCount, setMenuCount] = useState(0);
+  const { getMenuByRestaurant } = useMenu();
+
+  useEffect(() => {
+    const fetchMenuCount = async () => {
+      try {
+        const menuItems = await getMenuByRestaurant(restaurant.id);
+        setMenuCount(menuItems.filter(item => item.is_available).length);
+      } catch (error) {
+        setMenuCount(0);
+      }
+    };
+    fetchMenuCount();
+  }, [restaurant.id]);
+
+  const cardClass = featured 
+    ? "bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 border border-orange-100"
+    : "bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 border border-gray-100";
+
+  const imageHeight = featured ? "h-48" : "h-40";
+
+  return (
+    <div className={cardClass}>
+      <div className="relative">
+        <img
+          src={restaurant.image}
+          alt={restaurant.name}
+          className={`w-full ${imageHeight} object-cover`}
+        />
+        <div className="absolute top-3 right-3 bg-white bg-opacity-90 backdrop-blur-sm px-2 py-1 rounded-full flex items-center space-x-1">
+          <Star className="h-3 w-3 text-yellow-400 fill-current" />
+          <span className="text-xs font-medium">{restaurant.rating}</span>
         </div>
       </div>
-
-      {filteredRestaurants.length === 0 && (
-        <div className="text-center py-12">
-          <div className="text-gray-400 mb-4">
-            <Search className="h-12 w-12 mx-auto" />
+      
+      <div className="p-4">
+        <h3 className={`${featured ? 'text-xl' : 'text-lg'} font-bold text-gray-900 mb-1`}>
+          {restaurant.name}
+        </h3>
+        <p className="text-gray-600 mb-3 text-sm line-clamp-2">{restaurant.description}</p>
+        
+        <div className="flex justify-between items-center mb-3 text-xs text-gray-500">
+          <div className="flex items-center">
+            <Clock className="h-3 w-3 mr-1" />
+            {restaurant.delivery_time}
           </div>
-          <h3 className="text-xl font-medium text-gray-900 mb-2">No restaurants found</h3>
-          <p className="text-gray-600">Try adjusting your search criteria or browse all restaurants.</p>
+          <div className="flex items-center">
+            <Truck className="h-3 w-3 mr-1" />
+            {restaurant.delivery_fee} XAF
+          </div>
         </div>
-      )}
-    </Layout>
+        
+        <div className="flex flex-wrap gap-1 mb-3">
+          {restaurant.categories.slice(0, 2).map((category: string) => (
+            <span key={category} className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
+              {category}
+            </span>
+          ))}
+        </div>
+        
+        <div className="flex justify-between items-center">
+          <div className="text-xs text-gray-500">
+            {menuCount} dishes • {restaurant.town}
+          </div>
+          <Link
+            to={`/restaurant/${restaurant.id}`}
+            className={`${featured 
+              ? 'bg-gradient-to-r from-orange-600 to-green-600 text-white px-6 py-2 rounded-lg font-medium hover:from-orange-700 hover:to-green-700 transition-all duration-200 transform hover:scale-105'
+              : 'bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors'
+            }`}
+          >
+            {featured ? 'Order Now' : 'View Menu'}
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }

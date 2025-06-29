@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
     
     let query = `
       SELECT r.*, GROUP_CONCAT(rc.category) as categories
-      FROM restaurants r
+      FROM restaurants_info r
       LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
       WHERE r.is_active = true
     `;
@@ -57,7 +57,7 @@ router.get('/:id', async (req, res) => {
   try {
     const [restaurants] = await pool.execute(
       `SELECT r.*, GROUP_CONCAT(rc.category) as categories
-       FROM restaurants r
+       FROM restaurants_info r
        LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
        WHERE r.id = ?
        GROUP BY r.id`,
@@ -102,7 +102,7 @@ router.post('/', authenticateToken, requireRole(['owner']), async (req, res) => 
 
     // Check if owner already has a restaurant
     const [existingRestaurants] = await connection.execute(
-      'SELECT id FROM restaurants WHERE owner_id = ?',
+      'SELECT id FROM restaurants_info WHERE user_id = ?',
       [req.user.id]
     );
 
@@ -113,8 +113,8 @@ router.post('/', authenticateToken, requireRole(['owner']), async (req, res) => 
 
     // Insert restaurant
     const [result] = await connection.execute(
-      `INSERT INTO restaurants 
-       (owner_id, name, description, image, town, address, phone, delivery_time, delivery_fee, min_order)
+      `INSERT INTO restaurants_info 
+       (user_id, name, description, image, town, address, phone, delivery_time, delivery_fee, min_order)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [req.user.id, name, description, image, town, address, phone, delivery_time, delivery_fee, min_order]
     );
@@ -123,11 +123,12 @@ router.post('/', authenticateToken, requireRole(['owner']), async (req, res) => 
 
     // Insert categories
     if (categories && categories.length > 0) {
-      const categoryValues = categories.map(category => [restaurantId, category]);
-      await connection.execute(
-        'INSERT INTO restaurant_categories (restaurant_id, category) VALUES ?',
-        [categoryValues]
-      );
+      for (const category of categories) {
+        await connection.execute(
+          'INSERT INTO restaurant_categories (restaurant_id, category) VALUES (?, ?)',
+          [restaurantId, category]
+        );
+      }
     }
 
     await connection.commit();
@@ -157,11 +158,11 @@ router.put('/:id', authenticateToken, requireRole(['owner', 'admin']), async (re
     // Check ownership (unless admin)
     if (req.user.role !== 'admin') {
       const [restaurants] = await connection.execute(
-        'SELECT owner_id FROM restaurants WHERE id = ?',
+        'SELECT user_id FROM restaurants_info WHERE id = ?',
         [restaurantId]
       );
 
-      if (restaurants.length === 0 || restaurants[0].owner_id !== req.user.id) {
+      if (restaurants.length === 0 || restaurants[0].user_id !== req.user.id) {
         await connection.rollback();
         return res.status(403).json({ error: 'Not authorized to update this restaurant' });
       }
@@ -199,7 +200,7 @@ router.put('/:id', authenticateToken, requireRole(['owner', 'admin']), async (re
     if (updateFields.length > 0) {
       updateValues.push(restaurantId);
       await connection.execute(
-        `UPDATE restaurants SET ${updateFields.join(', ')} WHERE id = ?`,
+        `UPDATE restaurants_info SET ${updateFields.join(', ')} WHERE id = ?`,
         updateValues
       );
     }
@@ -212,11 +213,12 @@ router.put('/:id', authenticateToken, requireRole(['owner', 'admin']), async (re
       );
 
       if (categories.length > 0) {
-        const categoryValues = categories.map(category => [restaurantId, category]);
-        await connection.execute(
-          'INSERT INTO restaurant_categories (restaurant_id, category) VALUES ?',
-          [categoryValues]
-        );
+        for (const category of categories) {
+          await connection.execute(
+            'INSERT INTO restaurant_categories (restaurant_id, category) VALUES (?, ?)',
+            [restaurantId, category]
+          );
+        }
       }
     }
 
@@ -237,9 +239,9 @@ router.get('/owner/my-restaurant', authenticateToken, requireRole(['owner']), as
   try {
     const [restaurants] = await pool.execute(
       `SELECT r.*, GROUP_CONCAT(rc.category) as categories
-       FROM restaurants r
+       FROM restaurants_info r
        LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
-       WHERE r.owner_id = ?
+       WHERE r.user_id = ?
        GROUP BY r.id`,
       [req.user.id]
     );

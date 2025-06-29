@@ -1,86 +1,84 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { useAuth } from '../../contexts/AuthContext';
-import { useOrders } from '../../contexts/OrderContext';
 import { useRestaurants } from '../../contexts/RestaurantContext';
-import { mockMenuItems, cameroonianTowns } from '../../data/mockData';
+import { useMenu } from '../../contexts/MenuContext';
+import { cameroonianTowns } from '../../data/mockData';
 import { UtensilsCrossed, ShoppingBag, DollarSign, Clock, TrendingUp, Plus, Eye, MapPin, Phone, X } from 'lucide-react';
 
 export default function RestaurantDashboard() {
   const { user } = useAuth();
-  const { getOrdersByRestaurant } = useOrders();
-  const { getRestaurantByOwner, createRestaurant } = useRestaurants();
+  const { myRestaurant, createRestaurant, fetchMyRestaurant } = useRestaurants();
+  const { menuItems, fetchMenuItems } = useMenu();
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     town: '',
     phone: '',
     address: '',
-    deliveryTime: '',
-    deliveryFee: '',
-    minOrder: '',
+    delivery_time: '',
+    delivery_fee: '',
+    min_order: '',
     categories: [] as string[],
     image: ''
   });
 
-  const restaurant = user ? getRestaurantByOwner(user.id) : undefined;
-  const menuItems = restaurant ? mockMenuItems.filter(item => item.restaurantId === restaurant.id) : [];
-  const orders = restaurant ? getOrdersByRestaurant(restaurant.id) : [];
+  useEffect(() => {
+    if (user?.role === 'owner') {
+      fetchMyRestaurant();
+    }
+  }, [user]);
 
-  const todayOrders = orders.filter(order => {
-    const today = new Date();
-    const orderDate = new Date(order.createdAt);
-    return orderDate.toDateString() === today.toDateString();
-  });
-
-  const totalRevenue = orders
-    .filter(order => order.status === 'delivered')
-    .reduce((sum, order) => sum + order.total, 0);
-
-  const todayRevenue = todayOrders
-    .filter(order => order.status === 'delivered')
-    .reduce((sum, order) => sum + order.total, 0);
-
-  const pendingOrders = orders.filter(order => 
-    order.status === 'pending' || order.status === 'preparing'
-  );
+  useEffect(() => {
+    if (myRestaurant) {
+      fetchMenuItems(myRestaurant.id);
+    }
+  }, [myRestaurant]);
 
   const availableCategories = ['Traditional', 'African', 'French', 'Fine Dining', 'Chicken', 'Fast Food', 'Healthy', 'Salads', 'Seafood', 'Vegetarian', 'Beverages', 'Desserts'];
 
-  const handleCreateRestaurant = (e: React.FormEvent) => {
+  const handleCreateRestaurant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    const restaurantData = {
-      name: formData.name,
-      description: formData.description,
-      image: formData.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg',
-      town: formData.town,
-      deliveryTime: formData.deliveryTime,
-      deliveryFee: parseInt(formData.deliveryFee),
-      minOrder: parseInt(formData.minOrder),
-      categories: formData.categories,
-      ownerId: user.id,
-      phone: formData.phone,
-      address: formData.address
-    };
+    setLoading(true);
+    try {
+      const restaurantData = {
+        name: formData.name,
+        description: formData.description,
+        image: formData.image || 'https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg',
+        town: formData.town,
+        delivery_time: formData.delivery_time,
+        delivery_fee: parseInt(formData.delivery_fee),
+        min_order: parseInt(formData.min_order),
+        categories: formData.categories,
+        phone: formData.phone,
+        address: formData.address
+      };
 
-    createRestaurant(restaurantData);
-    setShowCreateForm(false);
-    setFormData({
-      name: '',
-      description: '',
-      town: '',
-      phone: '',
-      address: '',
-      deliveryTime: '',
-      deliveryFee: '',
-      minOrder: '',
-      categories: [],
-      image: ''
-    });
+      await createRestaurant(restaurantData);
+      setShowCreateForm(false);
+      setFormData({
+        name: '',
+        description: '',
+        town: '',
+        phone: '',
+        address: '',
+        delivery_time: '',
+        delivery_fee: '',
+        min_order: '',
+        categories: [],
+        image: ''
+      });
+    } catch (error) {
+      console.error('Failed to create restaurant:', error);
+      alert('Failed to create restaurant. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCategoryToggle = (category: string) => {
@@ -92,7 +90,7 @@ export default function RestaurantDashboard() {
     }));
   };
 
-  if (!restaurant) {
+  if (!myRestaurant) {
     return (
       <Layout title="Restaurant Dashboard">
         <div className="bg-white rounded-2xl shadow-lg p-8 text-center border border-orange-100">
@@ -216,8 +214,8 @@ export default function RestaurantDashboard() {
                       <input
                         type="text"
                         required
-                        value={formData.deliveryTime}
-                        onChange={(e) => setFormData({ ...formData, deliveryTime: e.target.value })}
+                        value={formData.delivery_time}
+                        onChange={(e) => setFormData({ ...formData, delivery_time: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         placeholder="e.g., 25-35 min"
                       />
@@ -231,8 +229,8 @@ export default function RestaurantDashboard() {
                         type="number"
                         required
                         min="0"
-                        value={formData.deliveryFee}
-                        onChange={(e) => setFormData({ ...formData, deliveryFee: e.target.value })}
+                        value={formData.delivery_fee}
+                        onChange={(e) => setFormData({ ...formData, delivery_fee: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         placeholder="500"
                       />
@@ -246,8 +244,8 @@ export default function RestaurantDashboard() {
                         type="number"
                         required
                         min="0"
-                        value={formData.minOrder}
-                        onChange={(e) => setFormData({ ...formData, minOrder: e.target.value })}
+                        value={formData.min_order}
+                        onChange={(e) => setFormData({ ...formData, min_order: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         placeholder="2000"
                       />
@@ -296,10 +294,10 @@ export default function RestaurantDashboard() {
                     </button>
                     <button
                       type="submit"
-                      disabled={formData.categories.length === 0}
+                      disabled={formData.categories.length === 0 || loading}
                       className="flex-1 bg-gradient-to-r from-orange-600 to-green-600 text-white py-2 px-4 rounded-lg font-medium hover:from-orange-700 hover:to-green-700 transition-all duration-200 disabled:opacity-50"
                     >
-                      Create Restaurant
+                      {loading ? 'Creating...' : 'Create Restaurant'}
                     </button>
                   </div>
                 </form>
@@ -312,7 +310,7 @@ export default function RestaurantDashboard() {
   }
 
   return (
-    <Layout title={`${restaurant.name} Dashboard`}>
+    <Layout title={`${myRestaurant.name} Dashboard`}>
       {/* Stats Overview */}
       <div className="grid md:grid-cols-4 gap-6 mb-8">
         <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl p-6 border border-orange-200">
@@ -322,7 +320,7 @@ export default function RestaurantDashboard() {
             </div>
             <span className="text-orange-600 text-sm font-medium">Today</span>
           </div>
-          <div className="text-2xl font-bold text-gray-900 mb-1">{todayOrders.length}</div>
+          <div className="text-2xl font-bold text-gray-900 mb-1">0</div>
           <div className="text-gray-600 text-sm">Orders Today</div>
         </div>
 
@@ -333,9 +331,7 @@ export default function RestaurantDashboard() {
             </div>
             <span className="text-green-600 text-sm font-medium">Today</span>
           </div>
-          <div className="text-2xl font-bold text-gray-900 mb-1">
-            {todayRevenue.toLocaleString()} XAF
-          </div>
+          <div className="text-2xl font-bold text-gray-900 mb-1">0 XAF</div>
           <div className="text-gray-600 text-sm">Revenue Today</div>
         </div>
 
@@ -346,7 +342,7 @@ export default function RestaurantDashboard() {
             </div>
             <span className="text-blue-600 text-sm font-medium">Active</span>
           </div>
-          <div className="text-2xl font-bold text-gray-900 mb-1">{pendingOrders.length}</div>
+          <div className="text-2xl font-bold text-gray-900 mb-1">0</div>
           <div className="text-gray-600 text-sm">Pending Orders</div>
         </div>
 
@@ -357,9 +353,7 @@ export default function RestaurantDashboard() {
             </div>
             <span className="text-purple-600 text-sm font-medium">Total</span>
           </div>
-          <div className="text-2xl font-bold text-gray-900 mb-1">
-            {totalRevenue.toLocaleString()} XAF
-          </div>
+          <div className="text-2xl font-bold text-gray-900 mb-1">0 XAF</div>
           <div className="text-gray-600 text-sm">All Time Revenue</div>
         </div>
       </div>
@@ -368,14 +362,14 @@ export default function RestaurantDashboard() {
       <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-8 border border-orange-100">
         <div className="relative">
           <img
-            src={restaurant.image}
-            alt={restaurant.name}
+            src={myRestaurant.image}
+            alt={myRestaurant.name}
             className="w-full h-40 object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
           <div className="absolute bottom-4 left-6 text-white">
-            <h2 className="text-2xl font-bold">{restaurant.name}</h2>
-            <p className="text-orange-200">{restaurant.description}</p>
+            <h2 className="text-2xl font-bold">{myRestaurant.name}</h2>
+            <p className="text-orange-200">{myRestaurant.description}</p>
           </div>
         </div>
         
@@ -383,16 +377,16 @@ export default function RestaurantDashboard() {
           <div className="grid md:grid-cols-3 gap-4">
             <div>
               <span className="text-gray-500 text-sm">Location</span>
-              <div className="font-medium">{restaurant.town}</div>
+              <div className="font-medium">{myRestaurant.town}</div>
             </div>
             <div>
               <span className="text-gray-500 text-sm">Rating</span>
-              <div className="font-medium">{restaurant.rating} ⭐ (500+ reviews)</div>
+              <div className="font-medium">{myRestaurant.rating} ⭐ (500+ reviews)</div>
             </div>
             <div>
               <span className="text-gray-500 text-sm">Status</span>
               <div className="font-medium text-green-600">
-                {restaurant.isActive ? 'Active' : 'Inactive'}
+                {myRestaurant.is_active ? 'Active' : 'Inactive'}
               </div>
             </div>
           </div>
@@ -430,7 +424,7 @@ export default function RestaurantDashboard() {
                 </div>
                 <div>
                   <div className="font-medium text-gray-900">View Orders</div>
-                  <div className="text-sm text-gray-600">{pendingOrders.length} pending</div>
+                  <div className="text-sm text-gray-600">0 pending</div>
                 </div>
               </div>
               <div className="text-green-600">→</div>
@@ -450,40 +444,10 @@ export default function RestaurantDashboard() {
             </Link>
           </div>
           
-          {orders.length === 0 ? (
-            <div className="text-center py-8">
-              <ShoppingBag className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">No orders yet</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {orders.slice(0, 5).map((order) => (
-                <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <div className="font-medium text-gray-900">#{order.id}</div>
-                    <div className="text-sm text-gray-600">{order.customerName}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(order.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium text-orange-600">
-                      {order.total.toLocaleString()} XAF
-                    </div>
-                    <div className={`text-xs px-2 py-1 rounded-full ${
-                      order.status === 'pending' ? 'bg-yellow-100 text-yellow-600' :
-                      order.status === 'preparing' ? 'bg-blue-100 text-blue-600' :
-                      order.status === 'ready' ? 'bg-green-100 text-green-600' :
-                      order.status === 'delivered' ? 'bg-green-100 text-green-600' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {order.status}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="text-center py-8">
+            <ShoppingBag className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500">No orders yet</p>
+          </div>
         </div>
       </div>
     </Layout>
